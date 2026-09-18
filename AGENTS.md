@@ -41,7 +41,10 @@ escalate any leak instead of rewriting history.
 * Desktop AppImage lifecycle: swap or roll back the Linux binary with
   `scripts/openwork-swap.sh` (`backup` / `install` / `restore` / `list` /
   `prune`). `install` and `restore` gracefully close any running OpenWork
-  first (SIGTERM, then SIGKILL after 15s).
+  first (SIGTERM, then SIGKILL after 15s) and normalize the binary to a
+  stable `openwork.AppImage` in `~/Applications` (via `OPENWORK_APPIMAGE`),
+  so the KDE `.desktop` entry (`com.differentai.openwork`) can point at a
+  fixed path.
 * Desktop user data lives in Electron's `userData` dir (keyed by appId
   `com.differentai.openwork`), never inside the AppImage — replacing the binary
   preserves workspaces, chats, and tokens, but match data schema versions before

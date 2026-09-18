@@ -16,13 +16,15 @@
 #   openwork-swap.sh prune [--keep N]          drop old backups (default keep 3)
 #
 #   install and restore first close any running OpenWork gracefully: SIGTERM,
-#   wait up to 15s, then SIGKILL if it refuses to exit.
+#   wait up to 15s, then SIGKILL if it refuses to exit. install/restore
+#   normalize the binary to a stable name (openwork.AppImage by default) so
+#   the KDE .desktop entry can point at a fixed path, not a versioned glob.
 #
 # Overrides (env):
 #   OPENWORK_APP_DIR      dir holding the AppImage      (default ~/Applications)
 #   OPENWORK_DATA_DIR     Electron userData dir         (default ~/.config/com.differentai.openwork)
 #   OPENWORK_BACKUP_DIR   where snapshots go            (default ~/.cache/openwork-swap)
-#   OPENWORK_APPIMAGE     exact AppImage file name      (default detected)
+#   OPENWORK_APPIMAGE     target AppImage file name     (default openwork.AppImage)
 #
 set -euo pipefail
 
@@ -30,26 +32,36 @@ APP_DIR="${OPENWORK_APP_DIR:-$HOME/Applications}"
 DATA_DIR="${OPENWORK_DATA_DIR:-$HOME/.config/com.differentai.openwork}"
 BACKUP_DIR="${OPENWORK_BACKUP_DIR:-$HOME/.cache/openwork-swap}"
 KEEP="${OPENWORK_KEEP:-3}"
+CANONICAL="${OPENWORK_APPIMAGE:-openwork.AppImage}"
 
 msg()  { printf '\033[1;36m[openwork-swap]\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[openwork-swap]\033[0m %s\n' "$*" >&2; }
 die()  { printf '\033[1;31m[openwork-swap]\033[0m %s\n' "$*" >&2; exit 1; }
 
-detect_appimage() {
-  local matches
-  matches=$(find "$APP_DIR" -maxdepth 1 -type f -name 'openwork-*.appimage' -printf '%f\n' 2>/dev/null | sort)
-  if [[ -z "$matches" ]]; then
-    die "no openwork-*.appimage found in $APP_DIR (set OPENWORK_APPIMAGE)"
+# Bring the installed binary onto the canonical name. Renames a lone
+# openwork-*.appimage (any case) when the canonical file is missing, so old
+# versioned names migrate in place without a second copy.
+canonicalize_appimage() {
+  if [[ -f "$APP_DIR/$CANONICAL" ]]; then
+    local extra
+    extra=$(find "$APP_DIR" -maxdepth 1 -type f -iname 'openwork-*.appimage' -not -name "$CANONICAL" -printf '%f\n' 2>/dev/null || true)
+    if [[ -n "$extra" ]]; then
+      warn "stray AppImage(s) present (ignored):"
+      printf '%s\n' "$extra" | sed 's/^/    /' >&2
+    fi
+    return 0
   fi
-  if [[ $(printf '%s\n' "$matches" | grep -c .) -gt 1 ]]; then
-    warn "multiple AppImages in $APP_DIR:"
-    printf '%s\n' "$matches" | sed 's/^/    /' >&2
-    die "set OPENWORK_APPIMAGE to choose one"
+  local legacy
+  legacy=$(find "$APP_DIR" -maxdepth 1 -type f -iname 'openwork-*.appimage' -printf '%f\n' 2>/dev/null | sort)
+  [[ -z "$legacy" ]] && return 0
+  if [[ $(printf '%s\n' "$legacy" | grep -c .) -gt 1 ]]; then
+    die "no $CANONICAL and multiple legacy AppImages in $APP_DIR; move one manually to $APP_DIR/$CANONICAL"
   fi
-  printf '%s\n' "$matches"
+  mv "$APP_DIR/$legacy" "$APP_DIR/$CANONICAL"
+  msg "renamed $legacy -> $CANONICAL"
 }
 
-appimage_path() { printf '%s/%s' "$APP_DIR" "$(detect_appimage)"; }
+appimage_path() { printf '%s/%s' "$APP_DIR" "$CANONICAL"; }
 
 # Only ever match the real OpenWork binary (process name `openwork`) plus
 # AppImage FUSE mount dirs. NEVER a broad `pgrep -f openwork`, because the
@@ -95,21 +107,20 @@ mktag() { date +%Y%m%d-%H%M%S; }
 snapshot() {
   local tag="$1"
   local snap="$BACKUP_DIR/$tag"
-  local app_file
-  app_file="$(detect_appimage 2>/dev/null | head -1)" || app_file=""
+  canonicalize_appimage
 
   mkdir -p "$snap"
   {
     printf 'tag      : %s\n' "$tag"
     printf 'created  : %s\n' "$(date -Is)"
     printf 'app_dir  : %s\n' "$APP_DIR"
-    printf 'app_file : %s\n' "${app_file:-<none>}"
+    printf 'app_file : %s\n' "$CANONICAL"
     printf 'data_dir : %s\n' "$DATA_DIR"
   } > "$snap/MANIFEST.txt"
 
-  if [[ -n "$app_file" && -f "$APP_DIR/$app_file" ]]; then
-    cp -a "$APP_DIR/$app_file" "$snap/app.appimage"
-    msg "saved binary: $APP_DIR/$app_file"
+  if [[ -f "$APP_DIR/$CANONICAL" ]]; then
+    cp -a "$APP_DIR/$CANONICAL" "$snap/app.appimage"
+    msg "saved binary: $APP_DIR/$CANONICAL"
   else
     warn "no AppImage present; backing up data only"
   fi
@@ -142,13 +153,10 @@ do_install() {
   terminate_openwork
   local tag="pre-install-$(mktag)"
   snapshot "$tag"
-  local target
-  target="$(appimage_path)"
-  local target_bak="${target}.old"
-  cp -a "$target" "$target_bak"
+  canonicalize_appimage
+  local target="$APP_DIR/$CANONICAL"
   cp -a "$new" "$target"
   chmod +x "$target"
-  rm -f "$target_bak"
   msg "installed $new as $target ($(stat -c %s "$target") bytes)"
   msg "rollback snapshot kept at: $BACKUP_DIR/$tag"
   prune "$KEEP"
@@ -167,9 +175,8 @@ do_restore() {
   local snap="$BACKUP_DIR/$which"
   [[ -d "$snap" ]] || die "backup not found: $which (see 'list')"
   terminate_openwork
-
-  local current
-  current="$(appimage_path)"
+  canonicalize_appimage
+  local current="$APP_DIR/$CANONICAL"
   cp -a "$current" "$current.mid-restore"
   if [[ -f "$snap/app.appimage" ]]; then
     cp -a "$snap/app.appimage" "$current"
