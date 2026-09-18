@@ -12,6 +12,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { toast } from "@/components/ui/sonner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { usePlatform } from "@/react-app/kernel/platform";
@@ -378,28 +379,40 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
           </div>
         </div>
       </div>
-      <div className="flex min-h-0 flex-1 overflow-hidden">
+      <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1 overflow-hidden">
         {treeOpen ? (
-          <Suspense fallback={<div className="w-40 shrink-0 border-r border-border bg-muted/20" />}>
-            <WorkspaceFileTree
-              client={client}
-              workspaceId={workspaceId}
-              workspaceName={workspaceName}
-              selectedPath={target.value}
-              onOpenFile={openWorkspaceFile}
-              fileActions={[
-                { id: "download", label: "Download", run: (entry) => void downloadFile(entry.path, entry.path.split(/[/\\]/).pop() ?? entry.path) },
-                ...(canUseDesktopWorkspaceActions
-                  ? [
-                    { id: "reveal", label: "Show in folder", run: (entry: OpenworkWorkspaceCatalogEntry) => void revealFile(entry.path) },
-                    { id: "open-external", label: "Open externally", run: (entry: OpenworkWorkspaceCatalogEntry) => void openFileExternally(entry.path) },
-                  ]
-                  : []),
-              ]}
-            />
-          </Suspense>
+          <>
+            <ResizablePanel
+              id="artifact-workspace-file-tree"
+              defaultSize="220px"
+              minSize="160px"
+              maxSize="420px"
+              className="min-h-0"
+            >
+              <Suspense fallback={<div className="h-full w-full border-r border-border bg-muted/20" />}>
+                <WorkspaceFileTree
+                  client={client}
+                  workspaceId={workspaceId}
+                  workspaceName={workspaceName}
+                  selectedPath={target.value}
+                  onOpenFile={openWorkspaceFile}
+                  fileActions={[
+                    { id: "download", label: "Download", run: (entry) => void downloadFile(entry.path, entry.path.split(/[/\\]/).pop() ?? entry.path) },
+                    ...(canUseDesktopWorkspaceActions
+                      ? [
+                        { id: "reveal", label: "Show in folder", run: (entry: OpenworkWorkspaceCatalogEntry) => void revealFile(entry.path) },
+                        { id: "open-external", label: "Open externally", run: (entry: OpenworkWorkspaceCatalogEntry) => void openFileExternally(entry.path) },
+                      ]
+                      : []),
+                  ]}
+                />
+              </Suspense>
+            </ResizablePanel>
+            <ResizableHandle />
+          </>
         ) : null}
-        <div className="min-w-0 flex-1 overflow-hidden">
+        <ResizablePanel id="artifact-preview" minSize="320px" className="min-h-0 min-w-0">
+        <div className="h-full min-w-0 overflow-hidden">
           {isLoading || (data?.kind === "binary" && !binaryObjectUrl) ? (
           <PreviewLoading />
         ) : isError ? (
@@ -439,7 +452,8 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
           <PreviewUnavailable />
           )}
         </div>
-      </div>
+        </ResizablePanel>
+      </ResizablePanelGroup>
     </div>
   );
 }
