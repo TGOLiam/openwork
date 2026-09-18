@@ -20,6 +20,25 @@ const TREE_CSS = `
     --trees-font-size-override: 12px;
   }
   button[data-type='item'] { border-radius: 5px; }
+
+  /* Keep labels on one line and ellipsize cleanly at any panel width. The
+     library middle-truncates, but at narrow widths its flex segments can
+     crush the label text; these rules are in the "unsafe" layer so they
+     take precedence over the library defaults. */
+  [data-item-section='content'] {
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  [data-item-section='content'] [data-truncate-content='visible'],
+  [data-truncate-content='visible'] {
+    white-space: nowrap;
+  }
+  [data-truncate-group-container='middle'] > div {
+    min-width: 0;
+  }
 `;
 
 export type WorkspaceFileAction = {
