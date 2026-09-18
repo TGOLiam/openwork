@@ -1493,7 +1493,7 @@ export function createBrowserPanel({ getWindow, remoteDebugPort, onDeepLink, che
       authorizeManualNavigation(event);
       getActiveWebContents(); // Reject navigation while suspension is pending.
       const view = getActiveBrowserView()
-        ?? createBrowserTab("about:blank", { select: true, ownerSessionId: registry.visibleSessionId() }).view;
+        ?? createBrowserTab("about:blank", { select: true, ownerSessionId: registry.visibleSessionId(), initializeBlank: false }).view;
       runDetachedTask("navigate browser tab", () => view.webContents.loadURL(normalizeBrowserUrl(url)));
     });
     ipcMain.handle("openwork:browser:back", (event) => {
@@ -1529,7 +1529,15 @@ export function createBrowserPanel({ getWindow, remoteDebugPort, onDeepLink, che
     ipcMain.handle("openwork:browser:createTab", (_event, url, sessionId) => {
       const target = typeof url === "string" && url.trim() ? url : BROWSER_NEW_TAB_URL;
       const ownerSessionId = sessionId === undefined ? registry.visibleSessionId() : normalizeSessionId(sessionId);
-      const tab = createBrowserTab(target, { select: true, ownerSessionId });
+      // A tab we navigate immediately must not also queue the about:blank init
+      // load: the two unordered loadURL calls race and the blank document can
+      // commit last, leaving the page permanently blank. Only a bare blank tab
+      // keeps the init load (which also preempts persistent-session restore).
+      const tab = createBrowserTab(target, {
+        select: true,
+        ownerSessionId,
+        initializeBlank: normalizeBrowserUrl(target) === "about:blank",
+      });
       return { tabId: tab.tabId };
     });
     ipcMain.handle("openwork:browser:closeTab", (_event, tabId) => closeUserBrowserTab(tabId == null ? undefined : String(tabId)));

@@ -594,6 +594,40 @@ test("page link menus open a policy-checked tab in the source conversation witho
   invoke("openwork:browser:destroy");
 });
 
+test("a user-created tab with a URL issues exactly one navigation", async () => {
+  const { invoke, views } = createPanel();
+  invoke("openwork:browser:setVisibleSession", "A");
+  invoke("openwork:browser:createTab", "https://example.com/single", "A");
+  await flush();
+  assert.equal(views().length, 1);
+  const [view] = views();
+  assert.deepEqual(view.webContents.loads, ["https://example.com/single"], "no about:blank init races the real page");
+  assert.equal(view.webContents.url, "https://example.com/single");
+  assert.equal(view.webContents.domReady, true);
+  invoke("openwork:browser:destroy");
+});
+
+test("an explicit blank tab still performs its single init load", async () => {
+  const { invoke, views } = createPanel();
+  invoke("openwork:browser:setVisibleSession", "A");
+  invoke("openwork:browser:createTab", "about:blank", "A");
+  await flush();
+  const [view] = views();
+  assert.deepEqual(view.webContents.loads, ["about:blank"]);
+  invoke("openwork:browser:destroy");
+});
+
+test("navigating with no open tab creates a fallback tab and loads the URL once", async () => {
+  const { invoke, views } = createPanel();
+  invoke("openwork:browser:setVisibleSession", "A");
+  invoke("openwork:browser:navigate", "https://example.com/manual");
+  await flush();
+  const [view] = views();
+  assert.deepEqual(view.webContents.loads, ["https://example.com/manual"], "the fallback tab does not race an about:blank init");
+  assert.equal(view.webContents.url, "https://example.com/manual");
+  invoke("openwork:browser:destroy");
+});
+
 test("page menu actions reject unsafe links, denied policy, capacity overflow, and stale documents", async () => {
   for (const mode of ["scheme", "policy", "capacity", "navigation", "frame-navigation", "closed", "conversation"]) {
     const { invoke, onScreen, menus, views } = createPanel(async ({ url }) => {
