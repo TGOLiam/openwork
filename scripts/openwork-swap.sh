@@ -105,7 +105,7 @@ do_backup() {
 }
 
 do_install() {
-  local new="${2:-}"
+  local new="${1:-}"
   [[ -f "$new" ]] || die "AppImage not found: $new"
   require_stopped
   mkdir -p "$BACKUP_DIR"
@@ -126,8 +126,8 @@ do_install() {
 
 do_restore() {
   local which
-  if [[ -n "${2:-}" ]]; then
-    which="$2"
+  if [[ -n "${1:-}" ]]; then
+    which="$1"
   elif [[ -f "$BACKUP_DIR/LATEST" ]]; then
     which="$(cat "$BACKUP_DIR/LATEST")"
   else
