@@ -15,6 +15,9 @@
 #   openwork-swap.sh restore [<tag>]           restore last (or named) backup
 #   openwork-swap.sh prune [--keep N]          drop old backups (default keep 3)
 #
+#   install and restore first close any running OpenWork gracefully: SIGTERM,
+#   wait up to 15s, then SIGKILL if it refuses to exit.
+#
 # Overrides (env):
 #   OPENWORK_APP_DIR      dir holding the AppImage      (default ~/Applications)
 #   OPENWORK_DATA_DIR     Electron userData dir         (default ~/.config/com.differentai.openwork)
@@ -48,15 +51,43 @@ detect_appimage() {
 
 appimage_path() { printf '%s/%s' "$APP_DIR" "$(detect_appimage)"; }
 
-is_running() {
-  pgrep -f -i 'openwork.*appimage' >/dev/null 2>&1 || pgrep -x -i 'openwork' >/dev/null 2>&1
+# Only ever match the real OpenWork binary (process name `openwork`) plus
+# AppImage FUSE mount dirs. NEVER a broad `pgrep -f openwork`, because the
+# shell that launches this script has "openwork" (and the .appimage path) in
+# its own command line and would be killed instead.
+openwork_pids() {
+  ( pgrep -x openwork 2>/dev/null || true; pgrep -f '/tmp/[^ ]*\.mount_[^ ]*openwork' 2>/dev/null || true ) | sort -u
 }
 
-require_stopped() {
-  if is_running; then
-    warn "OpenWork appears to be running. Close it first."
-    die "quit OpenWork and run again"
+is_running() {
+  [[ -n "$(openwork_pids)" ]]
+}
+
+terminate_openwork() {
+  local pids p waited=0
+  pids="$(openwork_pids)"
+  if [[ -z "$pids" ]]; then
+    msg "no running OpenWork session to stop"
+    return 0
   fi
+  p="$(printf '%s ' $pids | tr '\n' ' ')"
+  msg "closing running OpenWork (pid(s): ${p% })..."
+  for p in $pids; do kill -TERM "$p" 2>/dev/null || true; done
+  while (( waited < 15 )); do
+    if [[ -z "$(openwork_pids)" ]]; then
+      msg "OpenWork exited cleanly"
+      return 0
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+  warn "OpenWork still up after 15s; forcing quit..."
+  for p in $pids; do kill -KILL "$p" 2>/dev/null || true; done
+  sleep 2
+  if [[ -n "$(openwork_pids)" ]]; then
+    die "could not stop OpenWork — close it manually and re-run"
+  fi
+  msg "OpenWork stopped (forced)"
 }
 
 mktag() { date +%Y%m%d-%H%M%S; }
@@ -107,8 +138,8 @@ do_backup() {
 do_install() {
   local new="${1:-}"
   [[ -f "$new" ]] || die "AppImage not found: $new"
-  require_stopped
   mkdir -p "$BACKUP_DIR"
+  terminate_openwork
   local tag="pre-install-$(mktag)"
   snapshot "$tag"
   local target
@@ -135,7 +166,7 @@ do_restore() {
   fi
   local snap="$BACKUP_DIR/$which"
   [[ -d "$snap" ]] || die "backup not found: $which (see 'list')"
-  require_stopped
+  terminate_openwork
 
   local current
   current="$(appimage_path)"
