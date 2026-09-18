@@ -28,6 +28,24 @@ Never let a branch name, commit, PR text, comment, fixture, or evidence identify
 a customer, prospect, partner, or outside person; use internal ticket IDs, and
 escalate any leak instead of rewriting history.
 
+## Development workflow (this environment)
+
+* Default branch is `dev`; there is no `main`. Keep personal work on a dedicated
+  integration branch derived from `dev` and never commit directly to `origin`.
+* `origin` is read-only for this setup. Push your integration branch to a
+  personal fork remote instead; sync by merging `origin/dev` into the branch
+  (never the reverse) and force-pushing nothing.
+* Build prerequisites: pnpm workspace (`pnpm install` at root). `apps/server`
+  builds with `bun` (`pnpm dev` fails without it). The evals harness requires
+  Node 24 (`AsyncDisposableStack`); see `.nvmrc`.
+* Desktop AppImage lifecycle: swap or roll back the Linux binary with
+  `scripts/openwork-swap.sh` (`backup` / `install` / `restore` / `list` /
+  `prune`). The app must be closed for `install` and `restore`.
+* Desktop user data lives in Electron's `userData` dir (keyed by appId
+  `com.differentai.openwork`), never inside the AppImage — replacing the binary
+  preserves workspaces, chats, and tokens, but match data schema versions before
+  mixing an older build with newer data.
+
 ## Coding
 
 * pnpm only, never npm/yarn. TypeScript: never `any`, typecasts, or `as` unless
