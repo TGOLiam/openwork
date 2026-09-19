@@ -9,6 +9,12 @@ export type PanelTabType = "artifact" | "browser" | "app" | "files";
 
 export const WORKSPACE_FILES_TAB_ID = "workspace-files";
 
+// Extra Files explorer tabs (opened with the panel's + button) need their own
+// ids so openTab appends instead of replacing the existing explorer tab.
+export function createWorkspaceFilesTabId(): string {
+  return `workspace-files:${crypto.randomUUID()}`;
+}
+
 export type { BrowserPanelTab } from "../../../../app/lib/desktop-types";
 import type { BrowserPanelTab } from "../../../../app/lib/desktop-types";
 
@@ -31,9 +37,25 @@ export type FilesPanelTab = {
 
 export type PanelTab = BrowserPanelTab | ArtifactPanelTab | AppPanelTab | FilesPanelTab;
 
+// The right panel shows one mode at a time: the Browser rail shows browser tabs,
+// the Files rail shows everything the Files explorer owns. The rail is a filter
+// over a single tabs array, not a separate store.
+export type PanelMode = "browser" | "files";
+
+export function modeForTabType(type: PanelTabType): PanelMode {
+  return type === "browser" ? "browser" : "files";
+}
+
+export function tabsForMode(tabs: PanelTab[], mode: PanelMode): PanelTab[] {
+  return tabs.filter((tab) => modeForTabType(tab.type) === mode);
+}
+
 export type SessionPanelState = {
   tabs: PanelTab[];
   activeTabId: string | null;
+  mode: PanelMode;
+  // Which tab each rail should reselect when the user switches back to it.
+  activeTabIds: Record<PanelMode, string | null>;
 };
 
 type PersistedPanelTabRef = {
@@ -56,6 +78,7 @@ export type PanelTabStore = {
   openTab: (sessionId: string, tab: PanelTab) => void;
   closeTab: (sessionId: string, tabId: string) => void;
   selectTab: (sessionId: string, tabId: string | null) => void;
+  setPanelMode: (sessionId: string, mode: PanelMode) => void;
   reorderTabs: (sessionId: string, tabIds: string[]) => void;
   syncBrowserTabs: (sessionId: string, browserTabs: BrowserPanelTab[], activeBrowserTabId: string | null) => void;
   syncArtifactTargets: (
@@ -69,10 +92,31 @@ export type PanelTabStore = {
 const EMPTY_SESSION: SessionPanelState = {
   tabs: [],
   activeTabId: null,
+  mode: "browser",
+  activeTabIds: { browser: null, files: null },
 };
 
 function getWritableSession(state: PanelTabStore, sessionId: string): SessionPanelState {
   return state.sessions[sessionId] ?? EMPTY_SESSION;
+}
+
+// Every active-tab change records the selection against its mode so each rail
+// can reselect its last tab when the user switches back.
+function withActiveTab(
+  session: SessionPanelState,
+  updates: { tabs?: PanelTab[]; mode?: PanelMode; activeTabId: string | null },
+): SessionPanelState {
+  const mode = updates.mode ?? session.mode;
+
+  return {
+    tabs: updates.tabs ?? session.tabs,
+    mode,
+    activeTabId: updates.activeTabId,
+    activeTabIds: {
+      ...session.activeTabIds,
+      [mode]: updates.activeTabId,
+    },
+  };
 }
 
 function updateSession(
@@ -114,10 +158,11 @@ function reconcileOpenArtifactTabs(
     })
     .filter((tab): tab is PanelTab => tab !== null);
 
-  return {
-    tabs,
-    activeTabId: session.activeTabId === null ? null : resolveActiveTabId(tabs, session.activeTabId),
-  };
+  const activeTabId = session.activeTabId === null
+    ? null
+    : resolveActiveTabId(tabsForMode(tabs, session.mode), session.activeTabId);
+
+  return withActiveTab(session, { tabs, activeTabId });
 }
 
 function isSameTranscriptArtifactTargets(left: OpenTarget[], right: OpenTarget[]) {
@@ -193,8 +238,10 @@ function isSameSessionPanelState(
   session: SessionPanelState,
   tabs: PanelTab[],
   activeTabId: string | null,
+  mode: PanelMode,
 ) {
   return (
+    session.mode === mode &&
     session.tabs.length === tabs.length &&
     session.activeTabId === activeTabId &&
     session.tabs.every((tab, index) => isSameTab(tab, tabs[index]))
@@ -231,9 +278,13 @@ function mergePersistedSessions(
         siteToolActivity: [],
       }));
 
+    const activeTabId = session.activeTabId === null ? null : resolveActiveTabId(tabs, session.activeTabId);
+
     sessions[sessionId] = {
       tabs,
-      activeTabId: session.activeTabId === null ? null : resolveActiveTabId(tabs, session.activeTabId),
+      activeTabId,
+      mode: "browser",
+      activeTabIds: { browser: activeTabId, files: null },
     };
   }
 
@@ -251,21 +302,12 @@ export const usePanelTabStore = create<PanelTabStore>()(
       openTab: (sessionId, tab) => set((state) => {
         const session = getWritableSession(state, sessionId);
         const existingIndex = session.tabs.findIndex((entry) => entry.id === tab.id);
+        const mode = modeForTabType(tab.type);
+        const tabs = existingIndex >= 0
+          ? session.tabs.map((entry, index) => (index === existingIndex ? tab : entry))
+          : [...session.tabs, tab];
 
-        if (existingIndex >= 0) {
-          const tabs = [...session.tabs];
-          tabs[existingIndex] = tab;
-
-          return updateSession(state, sessionId, {
-            tabs,
-            activeTabId: tab.id,
-          });
-        }
-
-        return updateSession(state, sessionId, {
-          tabs: [...session.tabs, tab],
-          activeTabId: tab.id,
-        });
+        return updateSession(state, sessionId, withActiveTab(session, { tabs, mode, activeTabId: tab.id }));
       }),
       closeTab: (sessionId, tabId) => set((state) => {
         const session = getWritableSession(state, sessionId);
@@ -275,26 +317,53 @@ export const usePanelTabStore = create<PanelTabStore>()(
         }
 
         const tabs = session.tabs.filter((tab) => tab.id !== tabId);
-        const activeTabId = session.activeTabId === tabId
-          ? resolveActiveTabId(tabs, tabs[index]?.id ?? tabs[index - 1]?.id ?? null)
-          : session.activeTabId;
 
-        return updateSession(state, sessionId, { tabs, activeTabId });
+        if (session.activeTabId !== tabId) {
+          return updateSession(state, sessionId, { ...session, tabs });
+        }
+
+        // Resolve the next tab within the current mode so closing a files tab
+        // never lands on a browser tab (and vice versa).
+        const modeTabs = tabsForMode(session.tabs, session.mode);
+        const closedIndex = modeTabs.findIndex((tab) => tab.id === tabId);
+        const neighbourId = modeTabs[closedIndex + 1]?.id ?? modeTabs[closedIndex - 1]?.id ?? null;
+        const activeTabId = resolveActiveTabId(tabsForMode(tabs, session.mode), neighbourId);
+
+        return updateSession(state, sessionId, withActiveTab(session, { tabs, activeTabId }));
       }),
       selectTab: (sessionId, tabId) => set((state) => {
         const session = getWritableSession(state, sessionId);
-        if (tabId !== null && !session.tabs.some((tab) => tab.id === tabId)) {
+
+        if (tabId === null) {
+          if (session.activeTabId === null) {
+            return state;
+          }
+
+          return updateSession(state, sessionId, withActiveTab(session, { activeTabId: null }));
+        }
+
+        const tab = session.tabs.find((entry) => entry.id === tabId);
+        if (!tab) {
           return state;
         }
 
-        if (session.activeTabId === tabId) {
+        const mode = modeForTabType(tab.type);
+        if (session.activeTabId === tabId && session.mode === mode) {
           return state;
         }
 
-        return updateSession(state, sessionId, {
-          ...session,
-          activeTabId: tabId,
-        });
+        return updateSession(state, sessionId, withActiveTab(session, { mode, activeTabId: tabId }));
+      }),
+      setPanelMode: (sessionId, mode) => set((state) => {
+        const session = getWritableSession(state, sessionId);
+        if (session.mode === mode) {
+          return state;
+        }
+
+        const remembered = session.activeTabIds[mode];
+        const activeTabId = resolveActiveTabId(tabsForMode(session.tabs, mode), remembered);
+
+        return updateSession(state, sessionId, withActiveTab(session, { mode, activeTabId }));
       }),
       reorderTabs: (sessionId, tabIds) => set((state) => {
         const session = getWritableSession(state, sessionId);
@@ -335,30 +404,27 @@ export const usePanelTabStore = create<PanelTabStore>()(
           mergedTabs.push(browserTab);
         }
 
-        const currentActiveTab = session.tabs.find((tab) => tab.id === session.activeTabId);
         // A null selection with retained tabs is the Files empty state, not
         // permission for background browser updates to take over the panel.
-        const shouldSyncActiveFromElectron =
-          session.tabs.length === 0 || currentActiveTab?.type === "browser";
-
+        const shouldSyncActiveFromElectron = session.tabs.length === 0 || session.mode === "browser";
+        const mode = shouldSyncActiveFromElectron ? "browser" : session.mode;
         const activeTabId = shouldSyncActiveFromElectron
-          ? resolveActiveTabId(mergedTabs, activeBrowserTabId)
-          : session.activeTabId === null ? null : resolveActiveTabId(mergedTabs, session.activeTabId);
+          ? resolveActiveTabId(tabsForMode(mergedTabs, "browser"), activeBrowserTabId)
+          : session.activeTabId === null
+            ? null
+            : resolveActiveTabId(tabsForMode(mergedTabs, mode), session.activeTabId);
 
-        if (isSameSessionPanelState(session, mergedTabs, activeTabId)) {
+        if (isSameSessionPanelState(session, mergedTabs, activeTabId, mode)) {
           return state;
         }
 
-        return updateSession(state, sessionId, {
-          tabs: mergedTabs,
-          activeTabId,
-        });
+        return updateSession(state, sessionId, withActiveTab(session, { tabs: mergedTabs, mode, activeTabId }));
       }),
       syncArtifactTargets: (sessionId, targets) => set((state) => {
         const session = getWritableSession(state, sessionId);
         const nextSession = reconcileOpenArtifactTabs(session, targets);
 
-        if (isSameSessionPanelState(session, nextSession.tabs, nextSession.activeTabId)) {
+        if (isSameSessionPanelState(session, nextSession.tabs, nextSession.activeTabId, nextSession.mode)) {
           return state;
         }
 
@@ -376,7 +442,7 @@ export const usePanelTabStore = create<PanelTabStore>()(
           }));
         const nextSession = reconcileOpenArtifactTabs(session, collectibleTargets);
         const transcriptChanged = !isSameTranscriptArtifactTargets(currentTranscript, targets);
-        const sessionChanged = !isSameSessionPanelState(session, nextSession.tabs, nextSession.activeTabId);
+        const sessionChanged = !isSameSessionPanelState(session, nextSession.tabs, nextSession.activeTabId, nextSession.mode);
 
         if (!transcriptChanged && !sessionChanged) {
           return state;

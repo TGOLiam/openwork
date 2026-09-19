@@ -451,6 +451,7 @@ export function SessionPage(props: SessionPageProps) {
   const openTab = usePanelTabStore((state) => state.openTab);
   const closeTab = usePanelTabStore((state) => state.closeTab);
   const selectTab = usePanelTabStore((state) => state.selectTab);
+  const setPanelMode = usePanelTabStore((state) => state.setPanelMode);
   const transcriptTargets = usePanelTabStore((state) => (
     props.selectedSessionId ? state.transcriptArtifactTargets[props.selectedSessionId] ?? EMPTY_TRANSCRIPT_TARGETS : EMPTY_TRANSCRIPT_TARGETS
   ));
@@ -471,8 +472,9 @@ export function SessionPage(props: SessionPageProps) {
   const activeSidePanel = sessionSidePanel;
   const sidePanelOpen = activeSidePanel !== null;
   const panelRailActive = activeSidePanel === "panel";
-  const browserRailActive = panelRailActive && activePanelTab?.type === "browser";
-  const filesRailActive = panelRailActive && activePanelTab?.type !== "browser";
+  const panelMode = sessionPanelState.mode;
+  const browserRailActive = panelRailActive && panelMode === "browser";
+  const filesRailActive = panelRailActive && panelMode === "files";
   const showCloudSignIn = shellConfig.cloudSignin && !denAuth.isSignedIn && denAuth.status !== "checking";
   const openCloudSignIn = useCallback(() => {
     const baseUrl = readDenBootstrapConfig().baseUrl;
@@ -876,6 +878,7 @@ export function SessionPage(props: SessionPageProps) {
   }), []);
   useControlAction(setBrowserProxyControlAction);
   const openArtifactRailPane = useCallback(() => {
+    setPanelMode(sidePanelSessionKey, "files");
     if (!hasArtifactTargets) {
       const session = usePanelTabStore.getState().sessions[sidePanelSessionKey];
       const existingFilesTab = session?.tabs.find((tab) => tab.type === "files");
@@ -913,7 +916,7 @@ export function SessionPage(props: SessionPageProps) {
     }
 
     setCurrentSidePanel("panel");
-  }, [activePanelTab, artifactFileTargets, hasArtifactTargets, openTab, props.selectedSessionId, selectTab, sessionPanelState, setCurrentSidePanel, sidePanelSessionKey]);
+  }, [activePanelTab, artifactFileTargets, hasArtifactTargets, openTab, props.selectedSessionId, selectTab, sessionPanelState, setCurrentSidePanel, setPanelMode, sidePanelSessionKey]);
   const removeAccessibleTarget = useCallback((target: OpenTarget) => {
     const nextHiddenIds = new Set(hiddenAccessibleTargetIds);
     nextHiddenIds.add(target.id);

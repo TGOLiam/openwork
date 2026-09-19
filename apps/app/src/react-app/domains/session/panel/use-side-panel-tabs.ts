@@ -63,6 +63,7 @@ export function useOpenBrowserRailPane(
 ) {
   const createTab = useCreateTab();
   const selectTab = useSelectTab();
+  const setPanelMode = usePanelTabStore((state) => state.setPanelMode);
   const generation = React.useRef(0);
 
   React.useLayoutEffect(() => () => { generation.current += 1; }, [sessionId]);
@@ -84,6 +85,7 @@ export function useOpenBrowserRailPane(
         tabs,
         activeBrowserTabIdForSession(browserState, sessionId, tabs),
       );
+      setPanelMode(sessionId, "browser");
       const session = usePanelTabStore.getState().sessions[sessionId];
       const activeTab = session?.tabs.find((tab) => tab.id === session.activeTabId);
       const browserTab = activeTab?.type === "browser"
@@ -98,7 +100,7 @@ export function useOpenBrowserRailPane(
     } catch (error) {
       toast.error(error instanceof Error ? error.message : String(error));
     }
-  }, [active, createTab, selectTab, sessionId, setPanel]);
+  }, [active, createTab, selectTab, sessionId, setPanel, setPanelMode]);
 }
 
 export function useCreateTab() {
@@ -171,7 +173,15 @@ export function useReorderTabs() {
     );
     const browserTabIds = tabIds.filter((tabId) => browserTabsById.has(tabId));
 
-    reorderTabs(sessionId, tabIds);
+    // The strip only renders one mode at a time, so the incoming order is a
+    // subset. Expand it back to the full tab array, substituting only the
+    // browser slots (the only tabs the user can drag).
+    let browserIndex = 0;
+    const fullOrder = tabs.map((tab) => (
+      tab.type === "browser" ? browserTabIds[browserIndex++] ?? tab.id : tab.id
+    ));
+
+    reorderTabs(sessionId, fullOrder);
 
     void getElectronBrowser()?.reorderTabs?.(browserTabIds);
   }, [reorderTabs]);

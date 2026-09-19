@@ -35,6 +35,8 @@ import {
   type PanelTab as PanelTabEntry,
   useActivePanelTab,
   useSessionPanelState,
+  tabsForMode,
+  createWorkspaceFilesTabId,
 } from "./panel-tab-store";
 import { useControlAction, type OpenworkControlAction } from "../../../shell/control/control-provider";
 import type { OpenTarget } from "../artifacts/open-target";
@@ -523,11 +525,15 @@ export function SidePanel({
   onOpenExtensions,
   onOpenFiles,
 }: SidePanelProps) {
-  const { tabs } = useSessionPanelState(sessionId);
+  const { tabs, mode } = useSessionPanelState(sessionId);
   const activeTab = useActivePanelTab(sessionId);
+  const visibleTabs = React.useMemo(() => tabsForMode(tabs, mode), [tabs, mode]);
+  const visibleTabIds = React.useMemo(() => visibleTabs.map((tab) => tab.id), [visibleTabs]);
+  const activeVisibleTab = activeTab && visibleTabs.some((tab) => tab.id === activeTab.id) ? activeTab : null;
   const isBrowserAvailable = Boolean(getElectronBrowser());
 
   const { createTab, closeTab, selectTab, reorderTabs } = useSidePanelTabs(sessionId);
+  const openTab = usePanelTabStore((state) => state.openTab);
 
   const seedArtifactOverflowControlAction = React.useMemo<OpenworkControlAction | null>(() => {
     if (!import.meta.env.DEV) return null;
@@ -688,23 +694,23 @@ export function SidePanel({
 
   React.useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (!event.ctrlKey || event.altKey || event.metaKey || event.key !== "Tab" || tabs.length < 2) {
+      if (!event.ctrlKey || event.altKey || event.metaKey || event.key !== "Tab" || visibleTabs.length < 2) {
         return;
       }
 
-      const activeIndex = activeTab ? tabs.findIndex((tab) => tab.id === activeTab.id) : -1;
+      const activeIndex = activeVisibleTab ? visibleTabs.findIndex((tab) => tab.id === activeVisibleTab.id) : -1;
       if (activeIndex === -1) {
         return;
       }
 
       event.preventDefault();
       const offset = event.shiftKey ? -1 : 1;
-      selectTab(tabs[(activeIndex + offset + tabs.length) % tabs.length].id);
+      selectTab(visibleTabs[(activeIndex + offset + visibleTabs.length) % visibleTabs.length].id);
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [activeTab, selectTab, tabs]);
+  }, [activeVisibleTab, selectTab, visibleTabs]);
 
   return (
     <TooltipProvider delay={1000}>
@@ -720,29 +726,31 @@ export function SidePanel({
           <div className="flex h-10 items-center gap-1 border-b border-border/60 px-2">
             <div className="no-scrollbar min-w-0 flex-1 overflow-x-auto">
               <PanelTabList
-                values={tabs.map((tab) => tab.id)}
+                values={visibleTabIds}
                 onReorder={reorderTabs}
               >
-                {tabs.map((tab) => (
+                {visibleTabs.map((tab) => (
                   <SidePanelTab
                     key={tab.id}
                     tab={tab}
-                    active={tab.id === activeTab?.id}
+                    active={tab.id === activeVisibleTab?.id}
                     onSelect={selectTab}
                     onClose={closeTab}
                   />
                 ))}
               </PanelTabList>
             </div>
-            {!activeTab ? <span className="sr-only">Panel destinations</span> : null}
-            {activeTab && isBrowserAvailable ? (
+            {!activeVisibleTab ? <span className="sr-only">Panel destinations</span> : null}
+            {activeVisibleTab && (activeVisibleTab.type === "browser" ? isBrowserAvailable : true) ? (
               <Tooltip>
                 <TooltipTrigger
                   render={(
                     <Button
                       variant="ghost"
                       size="icon-sm"
-                      onClick={() => createTab()}
+                      onClick={() => activeVisibleTab.type === "browser"
+                        ? createTab()
+                        : openTab(sessionId, { id: createWorkspaceFilesTabId(), type: "files", label: "Files" })}
                       aria-label="New tab"
                     >
                       <Plus />
@@ -751,7 +759,7 @@ export function SidePanel({
                 />
                 <TooltipContent>New tab</TooltipContent>
               </Tooltip>
-            ) : !activeTab ? (
+            ) : !activeVisibleTab ? (
               <Button
                 variant="ghost"
                 size="icon-sm"
@@ -763,25 +771,25 @@ export function SidePanel({
             ) : null}
           </div>
         </div>
-        {!activeTab ? (
+        {!activeVisibleTab ? (
           <PanelEmpty
             onOpenBrowser={isBrowserAvailable ? createTab : undefined}
             onOpenExtensions={onOpenExtensions}
             onOpenFiles={onOpenFiles}
           />
         ) : null}
-        {activeTab?.type === "browser" ? (
+        {activeVisibleTab?.type === "browser" ? (
           <>
             <LoginSyncCard />
-            <BrowserPanelContent sessionId={sessionId} tab={activeTab} onClose={onClose} />
+            <BrowserPanelContent sessionId={sessionId} tab={activeVisibleTab} onClose={onClose} />
           </>
-        ) : activeTab?.type === "app" ? (
-          <div className="min-h-0 flex-1 overflow-hidden"><AppArtifact key={activeTab.id} appId={activeTab.appId} revisionId={activeTab.revisionId} receiptId={activeTab.receiptId} onClose={onClose} /></div>
-        ) : activeTab?.type === "files" ? (
+        ) : activeVisibleTab?.type === "app" ? (
+          <div className="min-h-0 flex-1 overflow-hidden"><AppArtifact key={activeVisibleTab.id} appId={activeVisibleTab.appId} revisionId={activeVisibleTab.revisionId} receiptId={activeVisibleTab.receiptId} onClose={onClose} /></div>
+        ) : activeVisibleTab?.type === "files" ? (
           <div className="min-h-0 flex-1 overflow-hidden">
             <WorkspaceFilesPanel
               sessionId={sessionId}
-              tab={activeTab}
+              tab={activeVisibleTab}
               client={client}
               workspaceId={workspaceId}
               workspaceRoot={workspaceRoot}
@@ -789,11 +797,11 @@ export function SidePanel({
               onClose={onClose}
             />
           </div>
-        ) : activeTab?.type === "artifact" ? (
+        ) : activeVisibleTab?.type === "artifact" ? (
           <div className="min-h-0 flex-1 overflow-hidden">
             <ArtifactPanel
               sessionId={sessionId}
-              tab={activeTab}
+              tab={activeVisibleTab}
               client={client}
               workspaceId={workspaceId}
               workspaceRoot={workspaceRoot}
