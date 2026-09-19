@@ -47,6 +47,12 @@ export type WorkspaceFileAction = {
   run: (entry: OpenworkWorkspaceCatalogEntry) => void;
 };
 
+export const WORKSPACE_FILE_TREE_QUERY_KEY = "workspace-file-tree";
+
+export function workspaceFileTreeQueryKey(workspaceId: string) {
+  return [WORKSPACE_FILE_TREE_QUERY_KEY, workspaceId] as const;
+}
+
 type WorkspaceFileTreeProps = {
   client: OpenworkServerClient;
   workspaceId: string;
@@ -93,7 +99,7 @@ export function WorkspaceFileTree({ client, workspaceId, workspaceName, selected
   const showNativeMenuRef = useRef(showNativeMenu);
   showNativeMenuRef.current = showNativeMenu;
   const query = useQuery({
-    queryKey: ["workspace-file-tree", workspaceId] as const,
+    queryKey: workspaceFileTreeQueryKey(workspaceId),
     queryFn: () => client.listWorkspaceFiles(workspaceId),
     staleTime: 30_000,
     refetchOnWindowFocus: false,

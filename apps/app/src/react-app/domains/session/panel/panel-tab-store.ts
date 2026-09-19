@@ -5,7 +5,9 @@ import { isCollectibleArtifactTarget, type OpenTarget, type OpenTargetPreview } 
 
 export const PERSISTED_PANEL_TAB_STORE_KEY = "openwork:panel-tabs:v1";
 
-export type PanelTabType = "artifact" | "browser" | "app";
+export type PanelTabType = "artifact" | "browser" | "app" | "files";
+
+export const WORKSPACE_FILES_TAB_ID = "workspace-files";
 
 export type { BrowserPanelTab } from "../../../../app/lib/desktop-types";
 import type { BrowserPanelTab } from "../../../../app/lib/desktop-types";
@@ -20,7 +22,14 @@ export type ArtifactPanelTab = {
 
 export type AppPanelTab = { id: string; type: "app"; label: string; appId: string; revisionId?: string; receiptId?: string };
 
-export type PanelTab = BrowserPanelTab | ArtifactPanelTab | AppPanelTab;
+export type FilesPanelTab = {
+  id: string;
+  type: "files";
+  label: string;
+  target?: OpenTarget | null;
+};
+
+export type PanelTab = BrowserPanelTab | ArtifactPanelTab | AppPanelTab | FilesPanelTab;
 
 export type SessionPanelState = {
   tabs: PanelTab[];
@@ -166,6 +175,14 @@ function isSameTab(left: PanelTab, right: PanelTab) {
       left.siteToolCount === right.siteToolCount &&
       JSON.stringify(left.siteTools) === JSON.stringify(right.siteTools) &&
       JSON.stringify(left.siteToolActivity) === JSON.stringify(right.siteToolActivity)
+    );
+  }
+
+  if (left.type === "files" && right.type === "files") {
+    return (
+      left.label === right.label &&
+      (left.target?.id ?? null) === (right.target?.id ?? null) &&
+      (left.target?.updatedAt ?? null) === (right.target?.updatedAt ?? null)
     );
   }
 

@@ -88,7 +88,7 @@ import { SidePanel } from "../panel/side-panel";
 import { getSidePanelSessionKey } from "../panel/side-panel-session";
 import { useCreateTab, useOpenBrowserRailPane } from "../panel/use-side-panel-tabs";
 import { TerminalDock } from "../terminal/terminal-dock";
-import { useActivePanelTab, usePanelTabStore, useSessionPanelState } from "../panel/panel-tab-store";
+import { useActivePanelTab, usePanelTabStore, useSessionPanelState, WORKSPACE_FILES_TAB_ID } from "../panel/panel-tab-store";
 import { useWorkspaceShellLayout } from "../../../shell/workspace-shell-layout";
 import { useControlAction, type OpenworkControlAction } from "../../../shell/control/control-provider";
 import { cn } from "@/lib/utils";
@@ -877,10 +877,14 @@ export function SessionPage(props: SessionPageProps) {
   useControlAction(setBrowserProxyControlAction);
   const openArtifactRailPane = useCallback(() => {
     if (!hasArtifactTargets) {
-      const documentTab = activePanelTab?.type !== "browser" && activePanelTab
-        ? activePanelTab
-        : sessionPanelState.tabs.find((tab) => tab.type !== "browser");
-      selectTab(sidePanelSessionKey, documentTab?.id ?? null);
+      const session = usePanelTabStore.getState().sessions[sidePanelSessionKey];
+      const existingFilesTab = session?.tabs.find((tab) => tab.type === "files");
+      if (existingFilesTab) {
+        selectTab(sidePanelSessionKey, existingFilesTab.id);
+      } else {
+        openTab(sidePanelSessionKey, { id: WORKSPACE_FILES_TAB_ID, type: "files", label: "Files" });
+        selectTab(sidePanelSessionKey, WORKSPACE_FILES_TAB_ID);
+      }
       setCurrentSidePanel("panel");
       return;
     }
@@ -1346,6 +1350,7 @@ export function SessionPage(props: SessionPageProps) {
       isRemoteWorkspace={props.surface?.isRemoteWorkspace ?? false}
       onClose={closeRightPane}
       onOpenExtensions={props.settingsSlot ? () => setCurrentSidePanel("extensions") : undefined}
+      onOpenFiles={openArtifactRailPane}
     />
   ) : null;
 

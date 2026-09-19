@@ -4,6 +4,7 @@ import {
   Blocks,
   ArrowLeft,
   ArrowRight,
+  FolderOpen,
   Globe,
   Loader2,
   Plus,
@@ -27,6 +28,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { ArtifactIcon } from "../artifacts/artifact-icon";
 import { AppArtifact } from "../../apps/app-artifact";
 import { ArtifactPanel } from "../artifacts/artifact-panel";
+import { WorkspaceFilesPanel } from "../artifacts/workspace-files-panel";
 import {
   type BrowserPanelTab,
   usePanelTabStore,
@@ -55,6 +57,7 @@ type SidePanelProps = {
   isRemoteWorkspace?: boolean;
   onClose: () => void;
   onOpenExtensions?: () => void;
+  onOpenFiles: () => void;
 };
 
 // HMR can remount this module without unmounting BrowserPanelContent, leaving
@@ -147,7 +150,9 @@ function SidePanelTab({ tab, active, onSelect, onClose }: SidePanelTabProps) {
             ) : (
               <Globe />
             )
-          ) : tab.type === "app" ? <Blocks /> : (
+          ) : tab.type === "app" ? <Blocks /> : tab.type === "files" ? (
+            tab.target ? <ArtifactIcon type={tab.target.preview} /> : <FolderOpen />
+          ) : (
             <ArtifactIcon type={tab.preview} />
           )}
           <span className="min-w-0 flex-1 truncate text-left">{tab.label}</span>
@@ -516,6 +521,7 @@ export function SidePanel({
   isRemoteWorkspace = false,
   onClose,
   onOpenExtensions,
+  onOpenFiles,
 }: SidePanelProps) {
   const { tabs } = useSessionPanelState(sessionId);
   const activeTab = useActivePanelTab(sessionId);
@@ -761,6 +767,7 @@ export function SidePanel({
           <PanelEmpty
             onOpenBrowser={isBrowserAvailable ? createTab : undefined}
             onOpenExtensions={onOpenExtensions}
+            onOpenFiles={onOpenFiles}
           />
         ) : null}
         {activeTab?.type === "browser" ? (
@@ -770,6 +777,18 @@ export function SidePanel({
           </>
         ) : activeTab?.type === "app" ? (
           <div className="min-h-0 flex-1 overflow-hidden"><AppArtifact key={activeTab.id} appId={activeTab.appId} revisionId={activeTab.revisionId} receiptId={activeTab.receiptId} onClose={onClose} /></div>
+        ) : activeTab?.type === "files" ? (
+          <div className="min-h-0 flex-1 overflow-hidden">
+            <WorkspaceFilesPanel
+              sessionId={sessionId}
+              tab={activeTab}
+              client={client}
+              workspaceId={workspaceId}
+              workspaceRoot={workspaceRoot}
+              isRemoteWorkspace={isRemoteWorkspace}
+              onClose={onClose}
+            />
+          </div>
         ) : activeTab?.type === "artifact" ? (
           <div className="min-h-0 flex-1 overflow-hidden">
             <ArtifactPanel

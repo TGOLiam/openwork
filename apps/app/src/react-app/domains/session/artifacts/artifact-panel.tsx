@@ -4,7 +4,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Download, Ellipsis, ExternalLink, FolderOpen, PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
 
 import type { OpenworkServerClient, OpenworkWorkspaceCatalogEntry } from "@/app/lib/openwork-server";
-import { openDesktopPath, revealDesktopItemInDir } from "@/app/lib/desktop";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -15,10 +14,10 @@ import {
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { toast } from "@/components/ui/sonner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { usePlatform } from "@/react-app/kernel/platform";
 import { type ArtifactPanelTab, usePanelTabStore } from "../panel/panel-tab-store";
 import { isCollectibleArtifactTarget, openTargetFromWorkspaceFile, type BinaryData, type Data, type OpenTarget, type TextData } from "./open-target";
 import { HTMLPreview, ImagePreview, MarkdownPreview, PdfPreview, PlainText, PreviewError, PreviewLoading, PreviewUnavailable } from "./preview";
+import { absoluteWorkspacePath, useWorkspaceFileActions } from "./workspace-file-actions";
 
 const ArtifactTextEditor = lazy(() =>
   import("./artifact-text-editor").then((module) => ({ default: module.ArtifactTextEditor })),
@@ -52,6 +51,7 @@ type ArtifactPanelViewProps = {
   isRemoteWorkspace?: boolean;
   target: OpenTarget;
   onClose: () => void;
+  onOpenFile?: (entry: { path: string; size: number; mtimeMs: number }) => void;
 };
 
 type ArtifactQueryState =
@@ -59,13 +59,6 @@ type ArtifactQueryState =
   | (BinaryData & { contentType: string | null; updatedAt: number | null });
 
 type SaveArtifactInput = Data & { baseUpdatedAt: number | null };
-
-function absoluteWorkspacePath(root: string, path: string) {
-  const cleanRoot = root.trim().replace(/[/\\]+$/, "");
-  const cleanPath = path.trim().replace(/^\.\//, "");
-  
-  return cleanRoot ? `${cleanRoot}/${cleanPath}` : cleanPath;
-}
 
 function isTextContent(target: OpenTarget): boolean {
   return ["markdown", "code", "text", "sheet", "html"].includes(target.preview) && !/\.(xlsx|xls|ods)$/i.test(target.value);
@@ -93,9 +86,9 @@ export function ArtifactPanel({ sessionId, tab, client, workspaceId, workspaceRo
   );
 }
 
-function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRemoteWorkspace = false, target, onClose }: ArtifactPanelViewProps) {
-  const platform = usePlatform();
+export function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRemoteWorkspace = false, target, onClose, onOpenFile }: ArtifactPanelViewProps) {
   const queryClient = useQueryClient();
+  const { canUseDesktopWorkspaceActions, workspaceName, downloadFile, openFileExternally, revealFile } = useWorkspaceFileActions(client, workspaceId, workspaceRoot, isRemoteWorkspace);
   const [editing, setEditing] = useState(false);
   const [treeOpen, setTreeOpen] = useState(true);
   const [draft, setDraft] = useState("");
@@ -106,9 +99,7 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
   // their rendered previews and retain the existing Edit toggle.
   const isDirectTextEdit = isTextContent(target) && target.preview === "text";
   const isDirectCodeEdit = target.kind === "file" && target.preview === "code";
-  const canUseDesktopWorkspaceActions = !isRemoteWorkspace && platform.capabilities.revealInFileManager;
   const canUseDesktopFileActions = target.kind === "file" && canUseDesktopWorkspaceActions;
-  const workspaceName = workspaceRoot.split(/[/\\]/).filter(Boolean).pop() ?? "Workspace";
 
   const openWorkspaceFile = (entry: { path: string; size: number; mtimeMs: number }) => {
     const nextTarget = openTargetFromWorkspaceFile(entry.path, { size: entry.size, updatedAt: entry.mtimeMs });
@@ -121,6 +112,7 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
       target: nextTarget,
     });
   };
+  const openFile = onOpenFile ?? openWorkspaceFile;
 
   const { data, error, isError, isLoading } = useQuery<ArtifactQueryState>({
     queryKey: ["artifact-panel", workspaceId, target.id, target.updatedAt ?? null] as const,
@@ -213,42 +205,7 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
     },
   });
 
-  const downloadFile = async (path: string, name: string) => {
-    const result = await client.downloadWorkspaceFile(workspaceId, path);
-    const url = URL.createObjectURL(new Blob([result.data], { type: result.contentType ?? "application/octet-stream" }));
-    const anchor = document.createElement("a");
-
-    anchor.href = url;
-    anchor.download = name;
-    anchor.click();
-
-    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-  };
-
-  const openFileExternally = async (path: string) => {
-    if (isRemoteWorkspace) {
-      await downloadFile(path, path.split(/[/\\]/).pop() ?? path);
-
-      return;
-    }
-
-    try {
-      await openDesktopPath(absoluteWorkspacePath(workspaceRoot, path));
-    } catch (cause) {
-      toast.error(cause instanceof Error ? cause.message : "Could not open this file.");
-    }
-  };
-
-  const revealFile = async (path: string) => {
-    if (isRemoteWorkspace) return;
-    try {
-      await revealDesktopItemInDir(absoluteWorkspacePath(workspaceRoot, path));
-    } catch (cause) {
-      toast.error(cause instanceof Error ? cause.message : "Could not show this file in your file manager.");
-    }
-  };
-
-  const download = async () => {
+const download = async () => {
     if (target.kind === "url") {
       return;
     }
@@ -395,7 +352,7 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
                   workspaceId={workspaceId}
                   workspaceName={workspaceName}
                   selectedPath={target.value}
-                  onOpenFile={openWorkspaceFile}
+                  onOpenFile={openFile}
                   fileActions={[
                     { id: "download", label: "Download", run: (entry) => void downloadFile(entry.path, entry.path.split(/[/\\]/).pop() ?? entry.path) },
                     ...(canUseDesktopWorkspaceActions
