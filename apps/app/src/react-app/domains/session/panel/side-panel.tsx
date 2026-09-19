@@ -760,7 +760,7 @@ export function SidePanel({
         }}
       >
         <div className="shrink-0 border-b border-border bg-background mac:bg-background/80 mac:backdrop-blur-2xl mac:backdrop-saturate-150">
-          <div className="flex h-10 items-center gap-1 border-b border-border/60 px-2">
+          <div className="flex h-11 items-center gap-1 border-b border-border/60 px-2">
             <div ref={tabStripRef} className="panel-tab-strip min-w-0 flex-1 overflow-x-auto overflow-y-hidden">
               <PanelTabList
                 values={visibleTabIds}
