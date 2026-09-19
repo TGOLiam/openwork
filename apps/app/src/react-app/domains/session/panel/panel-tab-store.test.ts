@@ -26,7 +26,7 @@ const localStorageShim = {
 };
 Reflect.set(globalThis, "localStorage", localStorageShim);
 
-const { usePanelTabStore, WORKSPACE_FILES_TAB_ID, createWorkspaceFilesTabId, panelTabTarget } = await import("./panel-tab-store");
+const { usePanelTabStore, WORKSPACE_FILES_TAB_ID, createWorkspaceFilesTabId, panelTabTarget, cycleTabId, tabsForMode } = await import("./panel-tab-store");
 
 function makeFileTarget(value: string): OpenTarget {
   const name = value.split("/").pop() ?? value;
@@ -308,4 +308,38 @@ test("a file already open as an artifact is selected instead of consumed by the 
   assert.equal(session.activeTabId, fileA.id);
   assert.equal(filesTab(session.tabs).target ?? null, null, "the blank files tab stays blank");
   assert.equal(session.tabs.filter((tab) => panelTabTarget(tab)?.id === fileA.id).length, 1);
+});
+
+test("cycleTabId moves to the next tab and wraps around", () => {
+  const tabs = [{ id: "a" }, { id: "b" }, { id: "c" }];
+
+  assert.equal(cycleTabId(tabs, "a", 1), "b");
+  assert.equal(cycleTabId(tabs, "c", 1), "a", "wraps to the first tab");
+  assert.equal(cycleTabId(tabs, "a", -1), "c", "wraps back to the last tab");
+});
+
+test("cycleTabId picks an end when nothing is active", () => {
+  const tabs = [{ id: "a" }, { id: "b" }];
+
+  assert.equal(cycleTabId(tabs, null, 1), "a");
+  assert.equal(cycleTabId(tabs, null, -1), "b");
+});
+
+test("cycleTabId is null with no tabs", () => {
+  assert.equal(cycleTabId([], "a", 1), null);
+});
+
+test("cycleTabId stays within the active mode", () => {
+  const store = usePanelTabStore.getState();
+  store.openTab("s-cycle-mode", { id: WORKSPACE_FILES_TAB_ID, type: "files", label: "Files" });
+  store.openTab("s-cycle-mode", makeArtifactTab("a.md", true));
+  store.openTab("s-cycle-mode", makeBrowserTab("browser-7", "s-cycle-mode"));
+  store.openTab("s-cycle-mode", makeBrowserTab("browser-8", "s-cycle-mode"));
+
+  const session = sessionState("s-cycle-mode");
+  assert.equal(session.mode, "browser");
+  assert.equal(cycleTabId(tabsForMode(session.tabs, "browser"), session.activeTabId, 1), "browser-7");
+
+  const filesTabs = tabsForMode(session.tabs, "files");
+  assert.equal(cycleTabId(filesTabs, WORKSPACE_FILES_TAB_ID, 1), "file:a.md");
 });

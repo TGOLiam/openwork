@@ -55,6 +55,23 @@ export function panelTabTarget(tab: PanelTab): OpenTarget | undefined {
   return tab.type === "files" || tab.type === "artifact" ? tab.target ?? undefined : undefined;
 }
 
+// Next/previous tab id within a mode-visible list, wrapping around. Returns
+// null when there is nothing to cycle to. Callers must route the result through
+// the electron-aware selectTab so native browser tabs stay in sync.
+export function cycleTabId(
+  tabs: Array<{ id: string }>,
+  activeTabId: string | null,
+  direction: 1 | -1,
+): string | null {
+  if (tabs.length === 0) {
+    return null;
+  }
+
+  const activeIndex = activeTabId === null ? -1 : tabs.findIndex((tab) => tab.id === activeTabId);
+  const baseIndex = activeIndex === -1 ? (direction > 0 ? -1 : 0) : activeIndex;
+  return tabs[(baseIndex + direction + tabs.length) % tabs.length]?.id ?? null;
+}
+
 export type SessionPanelState = {
   tabs: PanelTab[];
   activeTabId: string | null;

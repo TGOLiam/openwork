@@ -37,6 +37,7 @@ import {
   useSessionPanelState,
   tabsForMode,
   createWorkspaceFilesTabId,
+  cycleTabId,
 } from "./panel-tab-store";
 import { useControlAction, type OpenworkControlAction } from "../../../shell/control/control-provider";
 import type { OpenTarget } from "../artifacts/open-target";
@@ -534,6 +535,25 @@ export function SidePanel({
 
   const { createTab, closeTab, selectTab, reorderTabs } = useSidePanelTabs(sessionId);
   const openTab = usePanelTabStore((state) => state.openTab);
+  const tabStripRef = React.useRef<HTMLDivElement>(null);
+
+  // Mouse wheel over the tab strip scrolls it horizontally (a plain mouse wheel
+  // only emits deltaY), so many tabs stay reachable without a trackpad gesture.
+  React.useEffect(() => {
+    const strip = tabStripRef.current;
+    if (!strip) return;
+
+    const handleWheel = (event: WheelEvent) => {
+      if (event.deltaX === 0 && event.deltaY === 0) return;
+      if (strip.scrollWidth <= strip.clientWidth) return;
+
+      event.preventDefault();
+      strip.scrollLeft += event.deltaX !== 0 ? event.deltaX : event.deltaY;
+    };
+
+    strip.addEventListener("wheel", handleWheel, { passive: false });
+    return () => strip.removeEventListener("wheel", handleWheel);
+  }, []);
 
   const seedArtifactOverflowControlAction = React.useMemo<OpenworkControlAction | null>(() => {
     if (!import.meta.env.DEV) return null;
@@ -694,18 +714,35 @@ export function SidePanel({
 
   React.useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (!event.ctrlKey || event.altKey || event.metaKey || event.key !== "Tab" || visibleTabs.length < 2) {
+      if (!event.ctrlKey || event.altKey || event.metaKey) {
         return;
       }
 
-      const activeIndex = activeVisibleTab ? visibleTabs.findIndex((tab) => tab.id === activeVisibleTab.id) : -1;
-      if (activeIndex === -1) {
+      if (event.key === "Tab") {
+        if (visibleTabs.length < 2) {
+          return;
+        }
+
+        const activeIndex = activeVisibleTab ? visibleTabs.findIndex((tab) => tab.id === activeVisibleTab.id) : -1;
+        if (activeIndex === -1) {
+          return;
+        }
+
+        event.preventDefault();
+        const offset = event.shiftKey ? -1 : 1;
+        selectTab(visibleTabs[(activeIndex + offset + visibleTabs.length) % visibleTabs.length].id);
         return;
       }
 
-      event.preventDefault();
-      const offset = event.shiftKey ? -1 : 1;
-      selectTab(visibleTabs[(activeIndex + offset + visibleTabs.length) % visibleTabs.length].id);
+      if (event.key === "PageDown" || event.key === "PageUp") {
+        const nextTabId = cycleTabId(visibleTabs, activeVisibleTab?.id ?? null, event.key === "PageDown" ? 1 : -1);
+        if (!nextTabId) {
+          return;
+        }
+
+        event.preventDefault();
+        selectTab(nextTabId);
+      }
     };
 
     window.addEventListener("keydown", handleKeyDown);
@@ -724,7 +761,7 @@ export function SidePanel({
       >
         <div className="shrink-0 border-b border-border bg-background mac:bg-background/80 mac:backdrop-blur-2xl mac:backdrop-saturate-150">
           <div className="flex h-10 items-center gap-1 border-b border-border/60 px-2">
-            <div className="no-scrollbar min-w-0 flex-1 overflow-x-auto">
+            <div ref={tabStripRef} className="panel-tab-strip min-w-0 flex-1 overflow-x-auto overflow-y-hidden">
               <PanelTabList
                 values={visibleTabIds}
                 onReorder={reorderTabs}

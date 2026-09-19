@@ -48,6 +48,29 @@
   app-region: no-drag;
 }
 
+/* Thin, always-visible horizontal scrollbar for the right-panel tab strip. */
+@utility panel-tab-strip {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklab, var(--border) 70%, transparent) transparent;
+
+  &::-webkit-scrollbar {
+    height: 6px;
+  }
+
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    border-radius: 9999px;
+    background-color: color-mix(in oklab, var(--border) 70%, transparent);
+  }
+
+  &::-webkit-scrollbar-thumb:hover {
+    background-color: var(--border);
+  }
+}
+
 @keyframes accordion-down {
   from {
     height: 0;
