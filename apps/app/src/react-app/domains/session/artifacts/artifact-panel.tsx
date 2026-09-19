@@ -104,13 +104,7 @@ export function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoo
   const openWorkspaceFile = (entry: { path: string; size: number; mtimeMs: number }) => {
     const nextTarget = openTargetFromWorkspaceFile(entry.path, { size: entry.size, updatedAt: entry.mtimeMs });
     if (!nextTarget) return;
-    usePanelTabStore.getState().openTab(sessionId, {
-      id: nextTarget.id,
-      type: "artifact",
-      label: nextTarget.name,
-      preview: nextTarget.preview,
-      target: nextTarget,
-    });
+    usePanelTabStore.getState().openFileTarget(sessionId, nextTarget);
   };
   const openFile = onOpenFile ?? openWorkspaceFile;
 

@@ -26,7 +26,7 @@ const localStorageShim = {
 };
 Reflect.set(globalThis, "localStorage", localStorageShim);
 
-const { usePanelTabStore, WORKSPACE_FILES_TAB_ID, createWorkspaceFilesTabId } = await import("./panel-tab-store");
+const { usePanelTabStore, WORKSPACE_FILES_TAB_ID, createWorkspaceFilesTabId, panelTabTarget } = await import("./panel-tab-store");
 
 function makeFileTarget(value: string): OpenTarget {
   const name = value.split("/").pop() ?? value;
@@ -265,4 +265,47 @@ test("files explorer tab ids are unique", () => {
   const first = createWorkspaceFilesTabId();
   const second = createWorkspaceFilesTabId();
   assert.notEqual(first, second);
+});
+
+test("openFileTarget consumes a blank files explorer tab in place", () => {
+  const store = usePanelTabStore.getState();
+  store.openTab("s-consume", { id: WORKSPACE_FILES_TAB_ID, type: "files", label: "Files" });
+
+  store.openFileTarget("s-consume", makeFileTarget("a.md"), { consumeTabId: WORKSPACE_FILES_TAB_ID });
+
+  const session = sessionState("s-consume");
+  assert.equal(session.tabs.length, 1);
+  assert.equal(session.tabs[0]?.id, WORKSPACE_FILES_TAB_ID);
+  assert.equal(filesTab(session.tabs).target?.id, "file:a.md");
+});
+
+test("reopening a file consumed by the files tab selects it instead of duplicating", () => {
+  const store = usePanelTabStore.getState();
+  const fileA = makeFileTarget("a.md");
+  const fileB = makeFileTarget("b.md");
+
+  store.openTab("s-reopen-file", { id: WORKSPACE_FILES_TAB_ID, type: "files", label: "Files" });
+  store.openFileTarget("s-reopen-file", fileA, { consumeTabId: WORKSPACE_FILES_TAB_ID });
+  store.openFileTarget("s-reopen-file", fileB);
+  store.openFileTarget("s-reopen-file", fileA);
+
+  const session = sessionState("s-reopen-file");
+  assert.equal(session.activeTabId, WORKSPACE_FILES_TAB_ID, "the original file A tab is reselected");
+  assert.equal(session.tabs.length, 2, "no duplicate tab is created");
+  assert.equal(session.tabs.filter((tab) => panelTabTarget(tab)?.id === fileA.id).length, 1);
+});
+
+test("a file already open as an artifact is selected instead of consumed by the blank files tab", () => {
+  const store = usePanelTabStore.getState();
+  const fileA = makeFileTarget("a.md");
+
+  store.openTab("s-existing", makeArtifactTab("a.md", true));
+  store.openTab("s-existing", { id: WORKSPACE_FILES_TAB_ID, type: "files", label: "Files" });
+
+  store.openFileTarget("s-existing", fileA, { consumeTabId: WORKSPACE_FILES_TAB_ID });
+
+  const session = sessionState("s-existing");
+  assert.equal(session.activeTabId, fileA.id);
+  assert.equal(filesTab(session.tabs).target ?? null, null, "the blank files tab stays blank");
+  assert.equal(session.tabs.filter((tab) => panelTabTarget(tab)?.id === fileA.id).length, 1);
 });

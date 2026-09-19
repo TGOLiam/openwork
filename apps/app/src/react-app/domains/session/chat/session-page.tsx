@@ -88,7 +88,7 @@ import { SidePanel } from "../panel/side-panel";
 import { getSidePanelSessionKey } from "../panel/side-panel-session";
 import { useCreateTab, useOpenBrowserRailPane } from "../panel/use-side-panel-tabs";
 import { TerminalDock } from "../terminal/terminal-dock";
-import { useActivePanelTab, usePanelTabStore, useSessionPanelState, WORKSPACE_FILES_TAB_ID } from "../panel/panel-tab-store";
+import { panelTabTarget, useActivePanelTab, usePanelTabStore, useSessionPanelState, WORKSPACE_FILES_TAB_ID } from "../panel/panel-tab-store";
 import { useWorkspaceShellLayout } from "../../../shell/workspace-shell-layout";
 import { useControlAction, type OpenworkControlAction } from "../../../shell/control/control-provider";
 import { cn } from "@/lib/utils";
@@ -902,7 +902,7 @@ export function SessionPage(props: SessionPageProps) {
     const tabToSelect = currentArtifactTab?.id ?? artifactTab?.id ?? firstArtifact?.id ?? null;
 
     for (const target of artifactFileTargets) {
-      if (sessionPanelState.tabs.some((tab) => tab.id === target.id)) continue;
+      if (sessionPanelState.tabs.some((tab) => tab.id === target.id || panelTabTarget(tab)?.id === target.id)) continue;
       openTab(props.selectedSessionId, {
         id: target.id,
         type: "artifact",

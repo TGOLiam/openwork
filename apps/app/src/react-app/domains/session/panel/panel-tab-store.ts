@@ -50,6 +50,11 @@ export function tabsForMode(tabs: PanelTab[], mode: PanelMode): PanelTab[] {
   return tabs.filter((tab) => modeForTabType(tab.type) === mode);
 }
 
+// Only files/artifact tabs carry an open target; browser/app tabs do not.
+export function panelTabTarget(tab: PanelTab): OpenTarget | undefined {
+  return tab.type === "files" || tab.type === "artifact" ? tab.target ?? undefined : undefined;
+}
+
 export type SessionPanelState = {
   tabs: PanelTab[];
   activeTabId: string | null;
@@ -72,10 +77,17 @@ type PersistedPanelTabStore = {
   sessions: Record<string, PersistedSessionPanelState>;
 };
 
+export type OpenFileTargetOptions = {
+  // When the file is picked from a blank Files explorer tab, consume that tab in
+  // place so the explorer becomes the preview instead of spawning an extra tab.
+  consumeTabId?: string;
+};
+
 export type PanelTabStore = {
   sessions: Record<string, SessionPanelState>;
   transcriptArtifactTargets: Record<string, OpenTarget[]>;
   openTab: (sessionId: string, tab: PanelTab) => void;
+  openFileTarget: (sessionId: string, target: OpenTarget, options?: OpenFileTargetOptions) => void;
   closeTab: (sessionId: string, tabId: string) => void;
   selectTab: (sessionId: string, tabId: string | null) => void;
   setPanelMode: (sessionId: string, mode: PanelMode) => void;
@@ -306,6 +318,36 @@ export const usePanelTabStore = create<PanelTabStore>()(
         const tabs = existingIndex >= 0
           ? session.tabs.map((entry, index) => (index === existingIndex ? tab : entry))
           : [...session.tabs, tab];
+
+        return updateSession(state, sessionId, withActiveTab(session, { tabs, mode, activeTabId: tab.id }));
+      }),
+      // A file consumed by the Files explorer lives under the Files tab id, not
+      // its `file:` id. Dedupe by target id across every tab so reopening a file
+      // selects the tab that already shows it instead of spawning a duplicate.
+      openFileTarget: (sessionId, target, options) => set((state) => {
+        const session = getWritableSession(state, sessionId);
+        const existing = session.tabs.find((tab) => panelTabTarget(tab)?.id === target.id);
+
+        if (existing) {
+          const mode = modeForTabType(existing.type);
+          if (session.activeTabId === existing.id && session.mode === mode) {
+            return state;
+          }
+
+          return updateSession(state, sessionId, withActiveTab(session, { mode, activeTabId: existing.id }));
+        }
+
+        const consumeTab = options?.consumeTabId
+          ? session.tabs.find((tab) => tab.id === options.consumeTabId && tab.type === "files" && !tab.target)
+          : undefined;
+
+        const tab: PanelTab = consumeTab
+          ? { id: consumeTab.id, type: "files", label: target.name, target }
+          : { id: target.id, type: "artifact", label: target.name, preview: target.preview, target };
+        const tabs = consumeTab
+          ? session.tabs.map((entry) => (entry.id === consumeTab.id ? tab : entry))
+          : [...session.tabs, tab];
+        const mode = modeForTabType(tab.type);
 
         return updateSession(state, sessionId, withActiveTab(session, { tabs, mode, activeTabId: tab.id }));
       }),

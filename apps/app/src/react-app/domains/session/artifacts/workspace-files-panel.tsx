@@ -57,9 +57,9 @@ export function WorkspaceFilesPanel({
   });
   const hasWorkspaceFiles = (filesQuery.data?.items.length ?? 0) > 0;
 
-  // The blank Files tab is consumed by the first file picked from the tree
-  // (same tab id, so openTab replaces it in place); every later pick opens a
-  // normal artifact tab on top.
+  // The blank Files tab is consumed by the first file picked from the tree.
+  // openFileTarget dedupes by target id, so picking a file that is already open
+  // (here or in an artifact tab) reselects it instead of opening a duplicate.
   const openWorkspaceFile = (entry: { path: string; size: number; mtimeMs: number }) => {
     const nextTarget = openTargetFromWorkspaceFile(entry.path, { size: entry.size, updatedAt: entry.mtimeMs });
     if (!nextTarget) return;
@@ -70,20 +70,7 @@ export function WorkspaceFilesPanel({
     // currently-previewed file is a selection echo, not an open.
     if (target && target.value === entry.path) return;
 
-    const store = usePanelTabStore.getState();
-    if (!target) {
-      store.openTab(sessionId, { id: tab.id, type: "files", label: nextTarget.name, target: nextTarget });
-
-      return;
-    }
-
-    store.openTab(sessionId, {
-      id: nextTarget.id,
-      type: "artifact",
-      label: nextTarget.name,
-      preview: nextTarget.preview,
-      target: nextTarget,
-    });
+    usePanelTabStore.getState().openFileTarget(sessionId, nextTarget, { consumeTabId: tab.id });
   };
 
   const fileActions = useMemo<readonly WorkspaceFileAction[]>(() => [
